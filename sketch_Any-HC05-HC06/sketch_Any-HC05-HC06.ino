@@ -1,17 +1,17 @@
 /*
-The posible baudrates are:
+The posible baudrates are (for HC-06):
 1-------1200
 2-------2400
-3------4800
-4------9600
+3-------4800
+4-------9600
 5------19200
-6-------38400
+6------38400
 7------57600
 8-----115200
-9------230400
+9-----230400
 A-----460800
 B-----921600
-C-----1382400
+C----1382400
 
 
 *** Important. If you re-set the BT baud rate, you must change the BTserial baud to match what was just set. Steps:
@@ -28,13 +28,13 @@ that will show the BT module responding to the change.
 */
 #include <SoftwareSerial.h>
 
-// Connect HC05-GND to Arduino GND
-// Connect HC05-+5V to Arduino +5V
-#define BT_EN    2  // Connect the HC-05 EN to Arduino pin D2, ENABLE, LOW=disable, NOTE: Connect through a voltage divider!
-#define BT_RX    3  // Connect the HC-05 TX to Arduino pin D3, (Achtung: Arduino-RX == HC-05-TX)
-#define BT_TX    4  // Connect the HC-05 RX to Arduino pin D4, Arduino-Tx=HC-05-Rx, NOTE: Connect through a voltage divider!.
-#define BT_STATE 5  // Connect the HC-05 State to Arduino pin D5, LOW means: HC-05 is connected
-#define BT_PIN34 6  // Connect the HC-05 Pin34 (=PIO11) to Arduino pin D6, HIGH means same as pressing the button, NOTE: Connect through a voltage divider!
+// Connect HC05/HC-06-GND to Arduino GND
+// Connect HC05/HC-06-+5V to Arduino +5V
+#define BT_EN    2  // Connect the HC-05/HC-06 EN to Arduino pin D2, ENABLE, LOW=disable, NOTE: Connect through a voltage divider!
+#define BT_RX    3  // Connect the HC-05/HC-06 TX to Arduino pin D3, (Achtung: Arduino-RX == HC-05-TX)
+#define BT_TX    4  // Connect the HC-05/HC-06 RX to Arduino pin D4, Arduino-Tx=HC-05-Rx, NOTE: Connect through a voltage divider!.
+#define BT_STATE 5  // Connect the HC-05/HC-06 State to Arduino pin D5, LOW means: HC-05 is connected
+#define BT_PIN34 6  // Connect only the HC-05 Pin34 (=PIO11) to Arduino pin D6, HIGH means same as pressing the button, NOTE: Connect through a voltage divider!
 
 void AutoCommands();
 
