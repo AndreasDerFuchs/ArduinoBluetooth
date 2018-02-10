@@ -44,8 +44,8 @@ SoftwareSerial BTserial(BT_RX, BT_TX); // RX, TX
 long cnt=0, cmd=0, dto=0, hc=2;
 int cmd_via_BT=0;
 String str;
-String res; // response
-int nlcr=3; // need "\n\r" at end of AT-commands: 0,(2)=no, 1,(3)=yes, in brackets: guessed. Must be 0 for HC-06!
+String res_f, res_t; // response, full and trimmed (without white-space)
+int nlcr=3; // need "\r\n" at end of AT-commands: 0,(2)=no, 1,(3)=yes, in brackets: guessed. Must be 0 for HC-06!
 
 void AutoCommands();
 
@@ -72,8 +72,10 @@ void loop() // run over and over
   
   if (BTserial.available())
   {
+    delay(1); // read everything which is available within 1 ms, so that e.g. "OK\r\n" is not split up into "OK" and "\r\n"
     str=BTserial.readString();
-    res=str;
+    res_f=str;
+    res_t=str; res_t.trim();
     str.trim();
     if ((cnt-cmd-dto) > 2000) Serial.println("."); // most likely we got a new line from remote
     Serial.print(", from BT: \"");
@@ -157,11 +159,15 @@ void SendCmd(String str)
   BTserial.print(str);
   if (nlcr & 1) // if bit 0 is set
   {
-    BTserial.println(""); // needed for HC-05
-    // BTserial.print("\n\r"); // this should be but is not is equivalent to BTserial.println("")
-    str += "\\n\\r";
+    // BTserial.println(""); // needed for HC-05
+    BTserial.print("\r\n"); // this is equivalent to BTserial.println("")
+    str += "\\r\\n";
   }
   Serial.print("\nSent@cnt="); Serial.print(cnt); Serial.print(": \""); Serial.print(str); Serial.print("\"");
+  if (nlcr>1) // as long as we are not sure whether we need \r\n
+  {
+    Serial.print(", nlcr="); Serial.print(nlcr);    
+  }
   cmd=cnt; dto=0;
 }
 void AutoCommands()
@@ -191,16 +197,15 @@ void AutoCommands()
   if (cnt==hc+(dt+=1)) { Serial.println("Other txt is sent to module (e.g. AT-Commands)"); };
   if (cnt>=hc+dt && cnt<99) { cnt=99; }; // end of Help Info
   if (ac&5 &&cnt==(dt+=1200)) { digitalWrite(BT_PIN34, HIGH);} // start AT-MODE, only needed for HC-05 }
-  if (ac&1 &&cnt==(dt+=1200)) { nlcr=2; SendCmd("AT"); res=""; }        // my HC-06 responds with "OK"
-  if (ac&1 &&cnt==(dt+= 800)) { if (res=="OK")       {nlcr=0; } else {nlcr=3; SendCmd(""); } } // my HC-05 responds with "OK\n\r"
-  if (ac&1 &&cnt==(dt+=1200)) { if (res=="OK"&&nlcr) {nlcr=1; } else {nlcr=2; SendCmd("AT"); res=""; } }
-  if (ac&1 &&cnt==(dt+= 800)) { if (res=="OK")       {nlcr=0; } else {nlcr=3; SendCmd(""); } }
-  if (ac&1 &&cnt==(dt+=1200)) { Details(res); res.trim();
-                                if (res=="OK")   {nlcr &= ~2; } else {NextBaudRate(); cnt=9;} }
+  if (ac&1 &&cnt==(dt+=1200)) { nlcr=2; SendCmd("AT"); res_t=""; }        // my HC-06 responds with "OK"
+  if (ac&1 &&cnt==(dt+= 800)) { if(nlcr>1){if (res_t=="OK") nlcr=0; else {nlcr=3; SendCmd(""); }}} // my HC-05 responds with "OK\r\n"
+  if (ac&1 &&cnt==(dt+=1200)) { if(nlcr>1){if (res_t=="OK") nlcr=1; else {nlcr=2; SendCmd("AT"); res_t=""; }}}
+  if (ac&1 &&cnt==(dt+= 800)) { if(nlcr>1){if (res_t=="OK") nlcr=0; else {nlcr=3; SendCmd(""); }}}
+  if (ac&1 &&cnt==(dt+=1200)) { Details(res_f); if (res_t=="OK") { nlcr &= ~2; } else { NextBaudRate(); cnt=9; } }
   if (ac&1 &&cnt==(dt+=1200)) { Serial.print("\nThe Baud-Rate is: "); Serial.print(baud_rate);
                                 Serial.print(" baud, and nlcr="); Serial.println(nlcr); }
   
-  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+VERSION"); } // my HC-05 responds with "+VERSION:2.0-20100601\n\rOK"
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+VERSION"); } // my HC-05 responds with "+VERSION:2.0-20100601\r\nOK"
   if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+PSWD=1234"); }
   if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+UART:38400,0,0"); } // Set Baud-Rate to 57600 baud
   if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+NAME=Mas-HC-05"); } // Set Name to Mas-HC-05
@@ -226,7 +231,7 @@ void AutoCommands()
     if (nlcr || cmd_via_BT) BTserial.println(str); else BTserial.print(str); 
     Serial.print(", type ac0 to stop!\nSent: \""); str.trim(); Serial.print(str);
     cmd=cnt-dt; dto=dt; // communicate as fast as possible (as fast as allowed) with BT-module
-    if (nlcr || cmd_via_BT) { Serial.print("\\n\\r\""); } else Serial.print("\"");
+    if (nlcr || cmd_via_BT) { Serial.print("\\r\\n\""); } else Serial.print("\"");
   }
 }
 
@@ -248,7 +253,7 @@ int MyCommands(String msg, String who)
   else if (msg == "34lo") { Serial.println(who+"Pin34->LOW");
     digitalWrite(BT_PIN34, LOW); // simulate release of the button
   }
-  else if (msg == "ac0") { Serial.println(who+"Auto-Commands Off"); ac=1; }
+  else if (msg == "ac0") { Serial.println(who+"Auto-Commands Off"); ac=0; }
   else if (msg == "ac1") { Serial.println(who+"Baud-Rate-Detection On"); ac=1; cnt=99; }
   else if (msg == "ac2") { Serial.println(who+"Send commands as fast as possible on timeout"); ac=2; cnt=99; }
   else if (msg == "ac4") { Serial.println(who+"Send all cmds to turn a HC-05 into a master (unfinished)"); ac=4; cnt=99; }
