@@ -41,7 +41,7 @@ int ac=1; // Use auto-commands: 0=off, 1=baud-detection, 2(bit1=1)=send-endless-
 long baud_rate=38400; // The (initial) default baud rate to talk to the Bluetooth Module
 
 SoftwareSerial BTserial(BT_RX, BT_TX); // RX, TX
-long cnt=0, cmd=0, dto=0, hc=2;
+long cnt=0, cmd=0, dto=0, hc=2, answer=0;
 int cmd_via_BT=0;
 String str;
 String res_f, res_t; // response, full and trimmed (without white-space)
@@ -99,12 +99,12 @@ void loop() // run over and over
   
   if (BTserial.available())
   {
-    delay(1); // read everything which is available within 1 ms, so that e.g. "OK\r\n" is not split up into "OK" and "\r\n"
-    str=BTserial.readString();
+    str=BTserial.readStringUntil('\n');
     res_f=str;
     res_t=str; res_t.trim();
     str.trim();
-    if ((cnt-cmd-dto) > 2000) Serial.println("."); // most likely we got a new line from remote
+    if (answer > cmd || (cnt-cmd-dto) > 2000) Serial.println("."); // e.g. multiline answer or we got a new line from remote
+    answer = cnt;
     Serial.print(", from BT: \"");
     tmp_str=str; tmp_str.replace("\n","\\n"); tmp_str.replace("\r","\\r"); Serial.print(tmp_str+"\"");
 #if 1 // enable this to test communication with e.g. a smartphone. for every x the response will be -X-
@@ -164,7 +164,7 @@ void NextBaudRate()
 {
   // list only the rates which you want to have tested, terminate with a 0:
   // long rates[] = {1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600, 1382400, 0};
-  long rates[] = {4800, 9600, 19200, 38400, 9600, 57600, 115200, 0};
+  long rates[] = {4800, 19200, 38400, 9600, 57600, 115200, 0};
   int i;
   for (i=0; rates[i]!=0; ++i)
   {
@@ -232,34 +232,24 @@ void AutoCommands()
   if (ac&1 &&cnt==(dt+=1200)) { Serial.print("\nThe Baud-Rate is: "); Serial.print(baud_rate);
                                 Serial.print(" baud, and nlcr="); Serial.println(nlcr); }
   
-  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+VERSION"); } // my HC-05 responds with "+VERSION:2.0-20100601\r\nOK"
-  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+PSWD=1234"); }
-  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+UART:38400,0,0"); } // Set Baud-Rate to 57600 baud
-  if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+NAME=Mas-HC-05"); } // Set Name to Mas-HC-05
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+VERSION"); } // my HM-10 responds with "+VERSION=Firmware V3.0.6,Bluetooth V4.0 LE\r\nOK"
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+PIN001234"); }
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+BAUD6"); } // Set Baud-Rate to 57600 baud
+  if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+NAMEMas-HM-10"); } // Set Name to Mas-HM-10
   if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+ROLE=1"); } // Set Role to Master
   if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+CMODE:1"); } // Connect the module to any address
   if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+BIND?"); } // Query BT-address
-  if (ac&8 &&cnt==(dt+=1200)) { SendCmd("AT+NAME=Sla-HC-05"); } // Set Name to Sla-HC-05
+  if (ac&8 &&cnt==(dt+=1200)) { SendCmd("AT+NAMESla-HM-10"); } // Set Name to Sla-HM-10
   if (ac&8 &&cnt==(dt+=1200)) { SendCmd("AT+ROLE=0"); } // Set Role to Slave
-  if (ac&5 &&cnt==(dt+=1200)) { MyCommands("34lo", "Auto-CMD: "); } // end AT-MODE, only needed for HC-05
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+ROLE"); }
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+ADDR"); }
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+UUID"); }
+  if (ac&12&&cnt==(dt+=1200)) { MyCommands("34lo", "Auto-CMD: "); } // end AT-MODE, only needed for HC-05
   if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+RESET"); } // Set Baud-Rate to 57600 baud
-
-  if (ac&16 &&cnt==(dt+=1200)) { SendCmd("AT+VERSION"); } // my HC-06 responds with "OKlinvorV1.8"
-  if (ac&16 &&cnt==(dt+=1200)) { SendCmd("AT+PIN1234"); }
-  if (ac&16 &&cnt==(dt+=1200)) { SendCmd("AT+NAMESla-HC-06"); } // Set Name to VIN-HC-06
-  if (ac&16 &&cnt==(dt+=1200)) { SendCmd("AT+BAUD6"); }         // Set Baud-Rate to 57600 baud
-  
+ 
   // final line used in all auto-commands:
   if (       cnt==(dt+=1200)) { SendCmd("AT+VERSION"); } // used in all auto-command modes!
   if (ac&1 &&cnt==(dt+=1200)) { Serial.println(""); MyCommands("help", "Auto-CMD: "); }
-  
-  // NOTE: the next line will send a command every 1.2 seconds, actually the HC-06 should allow a command every second, but it doesn't!
-  if (ac&2 &&cnt>=(cmd+dt+1200)) { str="AT+VERSION";
-    if (nlcr || cmd_via_BT) BTserial.println(str); else BTserial.print(str); 
-    Serial.print(", type ac0 to stop!\nSent: \""); str.trim(); Serial.print(str);
-    cmd=cnt-dt; dto=dt; // communicate as fast as possible (as fast as allowed) with BT-module
-    if (nlcr || cmd_via_BT) { Serial.print("\\r\\n\""); } else Serial.print("\"");
-  }
 }
 
 int MyCommands(String msg, String who)
@@ -283,11 +273,8 @@ int MyCommands(String msg, String who)
   else if (msg == "ac0") { Serial.print(who+"Auto-Commands Off"); ac=0; SetCnt(99); }
   else if (msg == "ac1") { Serial.print(who+"Baud-Rate-Detection On"); ac=1; SetCnt(99); }
   else if (msg == "ac2") { Serial.print(who+"Send commands as fast as possible on timeout"); ac=2; SetCnt(99); }
-  else if (msg == "ac4") { Serial.print(who+"Send all cmds to turn a HC-05 into a master (unfinished)"); ac=4; SetCnt(99); }
-  else if (msg == "ac8") { Serial.print(who+"Send all cmds to turn a HC-05 into a slave (unfinished)"); ac=8; SetCnt(99); }
-  else if (msg == "ac16") { Serial.print(who+"Send all cmds to turn a HC-06 into a slave (unfinished)"); ac=16; SetCnt(99); }
-  else if (msg == "ac32") { Serial.print(who+"Not defined"); ac=32; SetCnt(99); }
-  else if (msg == "ac64") { Serial.print(who+"Not defined"); ac=64; SetCnt(99); }
+  else if (msg == "ac4") { Serial.print(who+"Turn HM10 into master"); ac=4; SetCnt(99); }
+  else if (msg == "ac8") { Serial.print(who+"Turn HM10 into slave"); ac=8; SetCnt(99); }
   else if (msg == "help") { Serial.print(who+"Help"); hc=cnt+2; PrintlnCnt(); }
   else if (msg.startsWith("Tx")) { msg=msg.substring(2);
                                    Serial.print(who+"Transmit: \""); Serial.print(msg); Serial.print("\""); PrintlnCnt(); }
