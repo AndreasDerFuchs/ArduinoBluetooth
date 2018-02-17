@@ -1,6 +1,26 @@
 
 /*
-The posible baudrates are (left AT-commands for HC-06, right AT-commands for HC-05)
+ * This is a configuration script to turn a HM10 into a master or a slave.
+ * If you have 2 devices and you make one a master and the other one a slave,
+ * this sketch can configer them so that they connect to each other.
+ * 
+ * The configuration will also set the baudrate to the same value for both
+ * devices. You can change this conficuration baudrate in the line:
+if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+BAUD6"); } // Set Baud-Rate to 57600 baud
+ * Or by sending the apropriate AT-Command on the serial monitor.
+ * 
+ * After a Baudrate-Change the serial port of the PC must be set to the same baud-rate.
+ * This is done automatically by the Auto-Command: ac1
+ * So Just send ac1 from the serial monitor and baud-rate-detection will be started.
+ * The initial baud-rate for the baud-rate-detection is set in the line: 
+long baud_rate=38400; // The (initial) default baud rate to talk to the Bluetooth Module
+ * If this value is equal to the bluetooth baud rate, startup is faster, but it is not
+ * neccessary to change this value.
+ * 
+ * More information about the HM10 can be found here:
+ * 
+ * 
+The posible baudrates are (left: AT-commands for HC-06, HM10; right: AT-commands for HC-05)
 AT+BAUD1------1200-----AT+UART:1200,0,0
 AT+BAUD2------2400-----AT+UART:2400,0,0
 AT+BAUD3------4800-----AT+UART:4800,0,0
@@ -13,31 +33,19 @@ AT+BAUD9----230400--x--Careful: your serial port may not support this speed!
 AT+BAUDA----460800--x--Careful: your serial port may not support this speed!
 AT+BAUDB----921600--x--Careful: your serial port may not support this speed!
 AT+BAUDC---1382400--x--Careful: your serial port may not support this speed!
-
-*** Important. If you re-set the BT baud rate, you must change the BTserial baud to match what was just set. Steps:
-
-Assuming the BT module baud default is 9600 Baud set BTserial to 9600 and you want to change it to 57600.
-1) leave the line:  //BTserial.begin(9600); as you have to been at the current baud setting to be able to send the command to the BT module.
-2) uncomment the line:  //BTserial.print("AT+BAUD7"); // Set baudrate to 57600
-3) run the sketch.  This will set the baud to 57600.  However, you may not see the response OK. 
-4) uncomment the line //BTserial.begin(57600); and download the sketch again - this sets BTserial to the new setting.
-5) now that BTserial is set to 57600 open the serial monitor - this will restart the sketch.  You should see a secomd line after "Goodnight Moon"
-that will show the BT module responding to the change.
-6) be sure to re-comment the line //BTserial.print("AT+BAUD7"); when done
-
 */
 #include <SoftwareSerial.h>
 
-// Connect HC05/HC-06-GND to Arduino GND
-// Connect HC05/HC-06-+5V to Arduino +5V
-#define BT_EN    2  // Connect the HC-05/HC-06 EN to Arduino pin D2, ENABLE, LOW=disable, NOTE: Connect through a voltage divider!
-#define BT_RX    3  // Connect the HC-05/HC-06 TX to Arduino pin D3, (Achtung: Arduino-RX == HC-05-TX)
-#define BT_TX    4  // Connect the HC-05/HC-06 RX to Arduino pin D4, Arduino-Tx=HC-05-Rx, NOTE: Connect through a voltage divider!.
-#define BT_STATE 5  // Connect the HC-05/HC-06 State to Arduino pin D5, LOW means: HC-05 is connected
-#define BT_PIN34 6  // Connect only the HC-05 Pin34 (=PIO11) to Arduino pin D6, HIGH means same as pressing the button, NOTE: Connect through a voltage divider!
+// Connect Bluetooth-Module-HC05/HC06/HM10-(GND) to Arduino GND
+// Connect Bluetooth-Module-HC05/HC06/HM10-(+5V) to Arduino +5V
+#define BT_EN    2  // Connect the HC05/HC06      EN to Arduino pin D2, ENABLE, LOW=disable, NOTE: Connect through a voltage divider!
+#define BT_RX    3  // Connect the HC05/HC06/HM10 TX to Arduino pin D3, (Note: Arduino-RX == Bt-HC05/HC06/HM10-TX)
+#define BT_TX    4  // Connect the HC05/HC06/HM10 RX to Arduino pin D4, Arduino-Tx=Bt-Rx, NOTE: Connect through a voltage divider!.
+#define BT_STATE 5  // Connect the HC05/HM10      State to Arduino pin D5, LOW means: HC05/HM10 is connected
+#define BT_PIN34 6  // Connect only the HC05 Pin34 (=PIO11) to Arduino pin D6, HIGH means same as pressing the button, NOTE: Connect through a voltage divider!
 
 // Set these variables to define the default behaviour:
-int ac=1; // Use auto-commands: 0=off, 1=baud-detection, 2(bit1=1)=send-endless-commands, 4(bit2=1)=ask-master, 8(bit3=1)=ask-slave, 
+int ac=1+2; // Use auto-commands: 0=off, 1=baud-detection, 2(bit1=1)=autoconnect, 4(bit2=1)=master, 8(bit3=1)=slave, 
 long baud_rate=38400; // The (initial) default baud rate to talk to the Bluetooth Module
 
 SoftwareSerial BTserial(BT_RX, BT_TX); // RX, TX
@@ -79,6 +87,8 @@ void SetCnt(long new_cnt)
   PrintCnt();
   cnt=new_cnt;
   Serial.print("->"); Serial.println(cnt);
+  hc=2; // turn off help
+  answer = 0; // avoid unnecessary new line
 }
 void CheckIfConnected()
 {
@@ -110,7 +120,7 @@ void loop() // run over and over
 #if 1 // enable this to test communication with e.g. a smartphone. for every x the response will be -X-
     for (int i=0; i<str.length(); ++i)
     {
-      if (str[i] == 'x')
+      if (str[i] == 'x' && (i==0 || str[i-1] != '0')) // for every x but not for 0x (like in 0x00158700B521)
       {
         Serial.println("-X-");
         BTserial.println("-X-");
@@ -213,12 +223,11 @@ void AutoCommands()
   if (cnt==hc+(dt+=1)) { Serial.println("  34lo - set the HC-05 Pin34 to low"); };
   if (cnt==hc+(dt+=1)) { Serial.println("  ac0  - turn auto commands off"); };
   if (cnt==hc+(dt+=1)) { Serial.println("  ac1  - automatically detect the baud-rate of your Bluetooth Module"); };
-  if (cnt==hc+(dt+=1)) { Serial.println("  ac2  - send AT+VERSION to the module after a timeout-period"); };
-  if (cnt==hc+(dt+=1)) { Serial.println("  ac4  - send auto commands to turn your HC-05 into a master (unfinished)"); };
-  if (cnt==hc+(dt+=1)) { Serial.println("  ac8  - send auto commands to turn your HC-05 into a slave (unfinished)"); };
-  if (cnt==hc+(dt+=1)) { Serial.println("  ac16 - send auto commands to turn your HC-06 into a slave (unfinished)"); };
+  if (cnt==hc+(dt+=1)) { Serial.println("  ac2  - discover other devices and connect to 1st one found"); };
+  if (cnt==hc+(dt+=1)) { Serial.println("  ac4  - configure a HM10 as master"); };
+  if (cnt==hc+(dt+=1)) { Serial.println("  ac8  - configure a HM10 as slave"); };
 # else // short help (needed e.g. on Arduino nano because dynamic mermory is very limited)
-  if (cnt==hc+(dt+=1)) { Serial.println("  help, off, on, 34hi, 34lo, ac0, ac1, ac2, ac4, ac8, ac16, ac128"); };
+  if (cnt==hc+(dt+=1)) { Serial.println("  help, off, on, 34hi, 34lo, ac0, ac1, ac2, ac4/master, ac8/slave"); };
 # endif
   // if (cnt==hc+(dt+=1)) { Serial.println("All other commands are directly sent to your module (e.g. AT-Commands)"); };
   if (cnt==hc+(dt+=1)) { Serial.print("Other txt is sent to module (e.g. AT-Commands)"); };
@@ -228,27 +237,49 @@ void AutoCommands()
   if (ac&1 &&cnt==(dt+= 800)) { if(nlcr>1){if (res_t=="OK") nlcr=0; else {nlcr=3; SendCmd(""); }}} // my HC-05 responds with "OK\r\n"
   if (ac&1 &&cnt==(dt+=1200)) { if(nlcr>1){if (res_t=="OK") nlcr=1; else {nlcr=2; SendCmd("AT"); res_t=""; }}}
   if (ac&1 &&cnt==(dt+= 800)) { if(nlcr>1){if (res_t=="OK") nlcr=0; else {nlcr=3; SendCmd(""); }}}
-  if (ac&1 &&cnt==(dt+=1200)) { Details(res_f); if (res_t=="OK") { nlcr &= ~2; } else { NextBaudRate(); SetCnt(99); } }
-  if (ac&1 &&cnt==(dt+=1200)) { Serial.print("\nThe Baud-Rate is: "); Serial.print(baud_rate);
-                                Serial.print(" baud, and nlcr="); Serial.println(nlcr); }
+  if (ac&1 &&cnt==(dt+=1200)) { Details(res_f); if (res_t=="OK") { nlcr &= ~2; } 
+                                else if (is_connected) { SendCmd("x"); } // do not change baud-rate when connected
+                                else { NextBaudRate(); SetCnt(99); } }
+  if (ac&1 &&cnt==(dt+=1200)) { Serial.print("\nBaud-Rate: "); Serial.print(baud_rate);
+                                Serial.print(", and nlcr="); Serial.println(nlcr); }
   
   if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+VERSION"); } // my HM-10 responds with "+VERSION=Firmware V3.0.6,Bluetooth V4.0 LE\r\nOK"
   if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+PIN001234"); }
   if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+BAUD6"); } // Set Baud-Rate to 57600 baud
   if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+NAMEMas-HM-10"); } // Set Name to Mas-HM-10
-  if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+ROLE=1"); } // Set Role to Master
-  if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+CMODE:1"); } // Connect the module to any address
-  if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+BIND?"); } // Query BT-address
+  if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+ROLE1"); } // Set Role to Master
   if (ac&8 &&cnt==(dt+=1200)) { SendCmd("AT+NAMESla-HM-10"); } // Set Name to Sla-HM-10
-  if (ac&8 &&cnt==(dt+=1200)) { SendCmd("AT+ROLE=0"); } // Set Role to Slave
-  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+ROLE"); }
-  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+ADDR"); }
-  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+UUID"); }
+  if (ac&8 &&cnt==(dt+=1200)) { SendCmd("AT+ROLE0"); } // Set Role to Slave
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+ROLE"); } //  query role (1=master, 0=slave)
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+IMME0"); } // run command mode or start after reset?
+  // AT+IMME0 sets the module to auto connect on start up. This is the default mode.
+  // AT+IMME1 sets the module to wait until it receives one of the connection AT commands 
+  // (AT+START, AT+CON, and AT+CONNL) before attempting to make a connection.
+  // see: http://www.martyncurrey.com/hm-10-bluetooth-4ble-modules/#HM-10 - AT commands
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+UUID"); }  // from BT: "+UUID=0xFFE0"
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+CHAR"); }  // from BT: "+CHAR=0xFFE1"
   if (ac&12&&cnt==(dt+=1200)) { MyCommands("34lo", "Auto-CMD: "); } // end AT-MODE, only needed for HC-05
-  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+RESET"); } // Set Baud-Rate to 57600 baud
- 
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+POWE2"); } // Set RF transmit power
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+RESET"); } // reset
+  if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+START"); } // from now on the red led is blinking, only needed with +IMME1
+  if (ac&8 &&cnt==(dt+=1200)) { SendCmd("AT+ADDR"); }  // My HM10-A returns: "+ADDR=00:15:87:00:B5:21" as slave (master returns 0s only)
+                                                       // My HM10-B returns: "+ADDR=00:15:87:20:9A:E7" as slave (master returns 0s only)
+
+  if (       cnt==(dt+=1200)) { SendCmd("AT"); } // used in all auto-command modes!
+  if (ac&2 &&cnt==(dt+=1200)) { SendCmd("AT+ROLE"); }
+  if (ac&2 &&cnt==(dt+= 800)) { if (is_connected           // is already connected via bluetooth? Or
+                                    || res_t=="+ROLE=0") { // is slave?
+                                  ac &= ~2; ac |=256;  // yes, is slave => stop this Auto-Command, but keep ac!=0 with a dummy value
+                                  SetCnt(cnt-3000); }} // and rewind cnt to previous AT command (is only called if ac!=0)
+  if (ac&2 &&cnt==(dt+=1200)) { SendCmd("AT+INQ"); }   // My HM10-A returns: "+INQ:1 0x001587209AE7" if HM10-B is on
+                                                       // My HM10-B returns: "+INQ:1 0x00158700B521" if HM10-A is on
+                              // wait until +INQE is received, max. 10 seconds
+  if (ac&2 &&cnt>dt&&cnt<(dt+9000)) { if (res_t=="+INQE") SetCnt(dt+9000); } // continue quickly if +INQE was received
+  if (ac&2 &&cnt==(dt+=9400)) { SendCmd("AT+CONN1"); }
+  if (ac&2 &&cnt==(dt+=1200)) { MyCommands("34lo", "Auto-CMD: "); } // end AT-MODE, only needed for HC-05
+
   // final line used in all auto-commands:
-  if (       cnt==(dt+=1200)) { SendCmd("AT+VERSION"); } // used in all auto-command modes!
+  if (       cnt==(dt+=1200)) { if (is_connected) SendCmd("xxx"); else SendCmd("AT+VERSION"); } // used in all auto-command modes!
   if (ac&1 &&cnt==(dt+=1200)) { Serial.println(""); MyCommands("help", "Auto-CMD: "); }
 }
 
@@ -271,13 +302,13 @@ int MyCommands(String msg, String who)
     digitalWrite(BT_PIN34, LOW); // simulate release of the button
   }
   else if (msg == "ac0") { Serial.print(who+"Auto-Commands Off"); ac=0; SetCnt(99); }
-  else if (msg == "ac1") { Serial.print(who+"Baud-Rate-Detection On"); ac=1; SetCnt(99); }
-  else if (msg == "ac2") { Serial.print(who+"Send commands as fast as possible on timeout"); ac=2; SetCnt(99); }
+  else if (msg == "ac1") { Serial.print(who+"Baud-Rate-Detection"); ac=1; SetCnt(99); }
+  else if (msg == "ac2") { Serial.print(who+"Auto-Connect"); ac=2; SetCnt(99); }
   else if (msg == "ac4") { Serial.print(who+"Turn HM10 into master"); ac=4; SetCnt(99); }
   else if (msg == "ac8") { Serial.print(who+"Turn HM10 into slave"); ac=8; SetCnt(99); }
   else if (msg == "help") { Serial.print(who+"Help"); hc=cnt+2; PrintlnCnt(); }
   else if (msg.startsWith("Tx")) { msg=msg.substring(2);
-                                   Serial.print(who+"Transmit: \""); Serial.print(msg); Serial.print("\""); PrintlnCnt(); }
+                                   Serial.print(who+"Transmit: \""); Serial.print(msg); BTserial.println(msg); Serial.print("\""); PrintlnCnt(); }
   else   ret_val = 0;
   return ret_val;
 }
