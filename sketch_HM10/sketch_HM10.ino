@@ -92,11 +92,19 @@ void SetCnt(long new_cnt)
 }
 void CheckIfConnected()
 {
+#if 0 // enable this if BT-device can be turned off an on
   if (is_enabled && digitalRead(BT_STATE) != is_connected)
   {
     is_connected = !is_connected; // toggle connection state
     Serial.print("\nNew STATE="); Serial.print(is_connected); PrintlnCnt();
   }
+#else
+  if (digitalRead(BT_STATE) != is_connected)
+  {
+    is_connected = !is_connected; // toggle connection state
+    Serial.print("\nNew STATE="); Serial.print(is_connected); PrintlnCnt();
+  }
+#endif
 }
 
 void loop() // run over and over
@@ -207,6 +215,8 @@ void SendCmd(String str)
   }
   cmd=cnt; dto=0;
 }
+
+long cnt_connect=99999;
 void AutoCommands()
 {
   long dt=0;
@@ -221,13 +231,14 @@ void AutoCommands()
   if (cnt==hc+(dt+=1)) { Serial.println("  on   - set the EN (enable) pin to high"); };
   if (cnt==hc+(dt+=1)) { Serial.println("  34hi - set the HC-05 Pin34 to high"); };
   if (cnt==hc+(dt+=1)) { Serial.println("  34lo - set the HC-05 Pin34 to low"); };
+  if (cnt==hc+(dt+=1)) { Serial.println("  ac   - show current Auto-Commmand"); };
   if (cnt==hc+(dt+=1)) { Serial.println("  ac0  - turn auto commands off"); };
   if (cnt==hc+(dt+=1)) { Serial.println("  ac1  - automatically detect the baud-rate of your Bluetooth Module"); };
   if (cnt==hc+(dt+=1)) { Serial.println("  ac2  - discover other devices and connect to 1st one found"); };
   if (cnt==hc+(dt+=1)) { Serial.println("  ac4  - configure a HM10 as master"); };
   if (cnt==hc+(dt+=1)) { Serial.println("  ac8  - configure a HM10 as slave"); };
 # else // short help (needed e.g. on Arduino nano because dynamic mermory is very limited)
-  if (cnt==hc+(dt+=1)) { Serial.println("  help, off, on, 34hi, 34lo, ac0, ac1, ac2, ac4/master, ac8/slave"); };
+  if (cnt==hc+(dt+=1)) { Serial.println("  help, off, on, 34hi, 34lo, ac, ac0, ac1, ac2, ac4/master, ac8/slave"); };
 # endif
   // if (cnt==hc+(dt+=1)) { Serial.println("All other commands are directly sent to your module (e.g. AT-Commands)"); };
   if (cnt==hc+(dt+=1)) { Serial.print("Other txt is sent to module (e.g. AT-Commands)"); };
@@ -259,28 +270,36 @@ void AutoCommands()
   if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+UUID"); }  // from BT: "+UUID=0xFFE0"
   if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+CHAR"); }  // from BT: "+CHAR=0xFFE1"
   if (ac&12&&cnt==(dt+=1200)) { MyCommands("34lo", "Auto-CMD: "); } // end AT-MODE, only needed for HC-05
-  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+POWE2"); } // Set RF transmit power
+  if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+POWE3"); } // Set maximum RF transmit power
   if (ac&12&&cnt==(dt+=1200)) { SendCmd("AT+RESET"); } // reset
   if (ac&4 &&cnt==(dt+=1200)) { SendCmd("AT+START"); } // from now on the red led is blinking, only needed with +IMME1
   if (ac&8 &&cnt==(dt+=1200)) { SendCmd("AT+ADDR"); }  // My HM10-A returns: "+ADDR=00:15:87:00:B5:21" as slave (master returns 0s only)
                                                        // My HM10-B returns: "+ADDR=00:15:87:20:9A:E7" as slave (master returns 0s only)
 
-  if (       cnt==(dt+=1200)) { SendCmd("AT"); } // used in all auto-command modes!
+  if (       cnt==(dt+=1200)) { SendCmd("AT"); cnt_connect = cnt; } // used in all auto-command modes!
   if (ac&2 &&cnt==(dt+=1200)) { SendCmd("AT+ROLE"); }
-  if (ac&2 &&cnt==(dt+= 800)) { if (is_connected           // is already connected via bluetooth? Or
-                                    || res_t=="+ROLE=0") { // is slave?
+  if (ac&2 &&cnt==(dt+= 800)) { if (res_t=="+ROLE=0") { // is slave?
                                   ac &= ~2; ac |=256;  // yes, is slave => stop this Auto-Command, but keep ac!=0 with a dummy value
-                                  SetCnt(cnt-3000); }} // and rewind cnt to previous AT command (is only called if ac!=0)
+                                  SetCnt(cnt_connect); }} // and rewind cnt to previous AT command (is only called if ac!=0)
   if (ac&2 &&cnt==(dt+=1200)) { SendCmd("AT+INQ"); }   // My HM10-A returns: "+INQ:1 0x001587209AE7" if HM10-B is on
                                                        // My HM10-B returns: "+INQ:1 0x00158700B521" if HM10-A is on
                               // wait until +INQE is received, max. 10 seconds
+  if (ac&2 &&cnt>cnt_connect&&cnt<(dt+9000)&&(cnt%400)== 50) { digitalWrite(BT_PIN34, HIGH); }
+  if (ac&2 &&cnt>cnt_connect&&cnt<(dt+9000)&&(cnt%400)==150) { digitalWrite(BT_PIN34, LOW); }
+  if (ac&2 &&cnt>cnt_connect&&cnt<(dt+9000)&&(cnt%400)==250) { digitalWrite(BT_EN, HIGH); }
+  if (ac&2 &&cnt>cnt_connect&&cnt<(dt+9000)&&(cnt%400)==350) { digitalWrite(BT_EN, LOW); }
   if (ac&2 &&cnt>dt&&cnt<(dt+9000)) { if (res_t=="+INQE") SetCnt(dt+9000); } // continue quickly if +INQE was received
   if (ac&2 &&cnt==(dt+=9400)) { SendCmd("AT+CONN1"); }
   if (ac&2 &&cnt==(dt+=1200)) { MyCommands("34lo", "Auto-CMD: "); } // end AT-MODE, only needed for HC-05
+  if (ac&2 &&cnt==(dt+=1200)) { MyCommands("off", "Auto-CMD: "); }
 
   // final line used in all auto-commands:
   if (       cnt==(dt+=1200)) { if (is_connected) SendCmd("xxx"); else SendCmd("AT+VERSION"); } // used in all auto-command modes!
   if (ac&1 &&cnt==(dt+=1200)) { Serial.println(""); MyCommands("help", "Auto-CMD: "); }
+  if (ac&2 &&cnt==(dt+=4800)) { if (is_connected) --cnt; else SetCnt(cnt_connect); }
+  if (ac&256&&cnt==(dt+=1200)) { MyCommands("on", "Auto-CMD: "); } // pre final phase for a slave: yellow LED on
+  if (ac&256&&cnt==(dt+=4800)) { if (!is_connected) --cnt;}
+  if (ac&256&&cnt==(dt+=1200)) { MyCommands("off", "Auto-CMD: "); } // final phase for a slave: red and yellow LEDs off
 }
 
 int MyCommands(String msg, String who)
@@ -301,6 +320,8 @@ int MyCommands(String msg, String who)
   else if (msg == "34lo") { Serial.print(who+"Pin34->LOW"); PrintlnCnt();
     digitalWrite(BT_PIN34, LOW); // simulate release of the button
   }
+  else if (msg == "ac")  { Serial.print(who+"ac="); Serial.println(ac);
+                           if(is_connected) { BTserial.print(who+"ac="); BTserial.println(ac); }}
   else if (msg == "ac0") { Serial.print(who+"Auto-Commands Off"); ac=0; SetCnt(99); }
   else if (msg == "ac1") { Serial.print(who+"Baud-Rate-Detection"); ac=1; SetCnt(99); }
   else if (msg == "ac2") { Serial.print(who+"Auto-Connect"); ac=2; SetCnt(99); }
